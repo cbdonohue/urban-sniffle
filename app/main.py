@@ -6,11 +6,13 @@ from functools import lru_cache
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.aeroapi_client import AeroAPIError, search_flights_near
 from app.config import Settings, get_settings
 from app.geo import bounding_box_from_center, haversine_miles
+from app.map_image import render_nearby_flights_png
 
 MAX_PAGES_CAP = 10
 
@@ -195,3 +197,25 @@ async def flights_near(
         num_pages_fetched=meta.get("num_pages_total"),
         flights=items,
     )
+
+
+@app.post(
+    "/api/flights/near/image",
+    responses={200: {"content": {"image/png": {}}}},
+    summary="Render nearby flights as a PNG map",
+)
+async def flights_near_image(
+    payload: NearbyFlightsResponse,
+    width: int = Query(
+        900,
+        ge=200,
+        le=2048,
+        description="Output image width/height in pixels (square)",
+    ),
+) -> Response:
+    """Draw the search circle, center crosshair, and aircraft positions from JSON."""
+    try:
+        png = render_nearby_flights_png(payload.model_dump(), size=width)
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return Response(content=png, media_type="image/png")
