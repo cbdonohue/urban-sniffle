@@ -1,5 +1,6 @@
 # Pinned for reproducible installs; sync with pyproject.toml
 fastapi==0.115.6
 httpx==0.28.1
+pillow==11.1.0
 pydantic-settings==2.7.1
 uvicorn[standard]==0.34.0
