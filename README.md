@@ -19,6 +19,8 @@ export AEROAPI_API_KEY=your_key_here
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Install **all** lines from [`requirements.txt`](requirements.txt) before running the app or tests; the `pydantic-settings` package provides the `pydantic_settings` module. If you see `ModuleNotFoundError: No module named 'pydantic_settings'`, your environment is missing those dependencies.
+
 Open interactive docs at `http://localhost:8000/docs`.
 
 ## API
@@ -39,9 +41,13 @@ curl -s "http://localhost:8000/api/flights/near?lat=37.6213&lon=-122.3790&radius
 
 ## Tests
 
+From the project root, with the same virtualenv you use for the app:
+
 ```bash
-pip install -r requirements.txt pytest pytest-asyncio
+pip install -r requirements.txt -r requirements-dev.txt
 PYTHONPATH=. pytest tests/ -v
 ```
+
+`pytest-asyncio` is required so the `[tool.pytest.ini_options]` asyncio settings in `pyproject.toml` apply and async tests run correctly.
 
 Data use is subject to FlightAware terms and your AeroAPI plan (rate limits and endpoint availability vary by subscription).
