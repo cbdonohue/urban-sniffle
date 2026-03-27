@@ -56,6 +56,12 @@ def main() -> int:
         default=900,
         help="Map image size in pixels (default: 900)",
     )
+    p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print idents and API meta (num_pages_fetched) on stderr",
+    )
     args = p.parse_args()
 
     base = args.base_url.rstrip("/") + "/"
@@ -74,6 +80,23 @@ def main() -> int:
             r1 = client.get(near_url, params=params)
             r1.raise_for_status()
             payload = r1.json()
+
+            flights = payload.get("flights") if isinstance(payload, dict) else None
+            n = len(flights) if isinstance(flights, list) else 0
+            print(f"Nearby flights returned: {n}", file=sys.stderr)
+            if args.verbose and isinstance(payload, dict):
+                pages = payload.get("num_pages_fetched")
+                if pages is not None:
+                    print(f"AeroAPI pages fetched: {pages}", file=sys.stderr)
+                if isinstance(flights, list) and flights:
+                    idents = []
+                    for f in flights:
+                        if isinstance(f, dict) and f.get("ident"):
+                            idents.append(str(f["ident"]))
+                        elif isinstance(f, dict) and f.get("fa_flight_id"):
+                            idents.append(str(f["fa_flight_id"]))
+                    if idents:
+                        print(f"Idents: {', '.join(idents)}", file=sys.stderr)
 
             img_url = urljoin(base, "api/flights/near/image")
             r2 = client.post(
