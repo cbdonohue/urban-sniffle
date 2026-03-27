@@ -146,6 +146,89 @@ def _safe_error_body(response: httpx.Response) -> Any:
         return response.text
 
 
+async def _collect_airports_nearby(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    *,
+    latitude: float,
+    longitude: float,
+    radius_statute_miles: int,
+    only_iap: bool,
+    max_pages: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Pages through /airports/nearby until max_pages or no next link."""
+    all_airports: list[dict[str, Any]] = []
+    meta: dict[str, Any] = {}
+    cursor: str | None = None
+    pages_done = 0
+
+    while pages_done < max_pages:
+        params: dict[str, Any] = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "radius": radius_statute_miles,
+            "only_iap": only_iap,
+            "max_pages": 1,
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        r = await client.get(
+            f"{base_url.rstrip('/')}/airports/nearby",
+            params=params,
+            headers={"x-apikey": api_key},
+        )
+        if r.status_code >= 400:
+            raise AeroAPIError(r.status_code, _safe_error_body(r))
+
+        data = r.json()
+        meta.setdefault("num_pages_total", 0)
+        meta["num_pages_total"] = meta.get("num_pages_total", 0) + int(
+            data.get("num_pages") or 0
+        )
+        batch = data.get("airports") or []
+        all_airports.extend(batch)
+        pages_done += 1
+
+        links = data.get("links") or {}
+        next_link = links.get("next") if isinstance(links, dict) else None
+        cursor = _cursor_from_next_link(next_link)
+        if not cursor:
+            break
+
+    return all_airports, meta
+
+
+async def search_airports_near(
+    *,
+    base_url: str,
+    api_key: str,
+    latitude: float,
+    longitude: float,
+    radius_miles: float,
+    only_iap: bool,
+    max_pages: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """
+    Query AeroAPI GET /airports/nearby for airports within ``radius_miles``
+    (statute miles). Upstream ``radius`` is an integer; values are rounded
+    and clamped to at least 1.
+    """
+    radius_int = max(1, int(round(radius_miles)))
+    async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
+        return await _collect_airports_nearby(
+            client,
+            base_url,
+            api_key,
+            latitude=latitude,
+            longitude=longitude,
+            radius_statute_miles=radius_int,
+            only_iap=only_iap,
+            max_pages=max_pages,
+        )
+
+
 async def search_flights_near(
     *,
     base_url: str,

@@ -58,3 +58,43 @@ async def test_flights_near_returns_sorted_mocked(override_settings):
     assert data["flights"][0]["ident"] == "TEST123"
     assert data["flights"][0]["distance_miles"] is not None
     async_mock.assert_awaited()
+
+
+@pytest.mark.anyio
+async def test_airports_near_returns_mocked(override_settings):
+    sample_airport = {
+        "airport_code": "KSFO",
+        "code_icao": "KSFO",
+        "code_iata": "SFO",
+        "name": "San Francisco International",
+        "city": "San Francisco",
+        "state": "CA",
+        "latitude": 37.6213,
+        "longitude": -122.3790,
+        "timezone": "America/Los_Angeles",
+        "country_code": "US",
+        "distance": 5,
+        "heading": 270,
+        "direction": "W",
+    }
+
+    async_mock = AsyncMock(
+        return_value=([sample_airport], {"num_pages_total": 1})
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("app.main.search_airports_near", async_mock):
+            r = await client.get(
+                "/api/airports/near",
+                params={"lat": 37.65, "lon": -122.4, "radius_miles": 25.0},
+            )
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["center_lat"] == 37.65
+    assert data["radius_sent_to_aeroapi"] == 25
+    assert len(data["airports"]) == 1
+    assert data["airports"][0]["airport_code"] == "KSFO"
+    assert data["airports"][0]["distance"] == 5
+    async_mock.assert_awaited()
