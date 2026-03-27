@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.aeroapi_client import AeroAPIError, search_flights_near
+from app.aeroapi_client import AeroAPIError, search_airports_near, search_flights_near
 from app.config import Settings, get_settings
 from app.geo import bounding_box_from_center, haversine_miles
 
@@ -45,6 +45,43 @@ class NearbyFlightsResponse(BaseModel):
     max_pages: int
     num_pages_fetched: int | None = None
     flights: list[NearbyFlightItem]
+
+
+class NearbyAirportItem(BaseModel):
+    """Airport row from AeroAPI GET /airports/nearby (shape may vary by plan)."""
+
+    model_config = {"extra": "allow"}
+
+    airport_code: str | None = None
+    code_icao: str | None = None
+    code_iata: str | None = None
+    code_lid: str | None = None
+    name: str | None = None
+    city: str | None = None
+    state: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str | None = None
+    country_code: str | None = None
+    distance: int | None = Field(
+        default=None,
+        description="Distance from search point (statute miles), per AeroAPI",
+    )
+    heading: int | None = None
+    direction: str | None = None
+
+
+class NearbyAirportsResponse(BaseModel):
+    center_lat: float
+    center_lon: float
+    radius_miles: float
+    only_iap: bool
+    max_pages: int
+    radius_sent_to_aeroapi: int = Field(
+        description="Integer statute-mile radius passed to AeroAPI (rounded from radius_miles)"
+    )
+    num_pages_fetched: int | None = None
+    airports: list[NearbyAirportItem]
 
 
 app = FastAPI(
@@ -194,4 +231,65 @@ async def flights_near(
         max_pages=capped,
         num_pages_fetched=meta.get("num_pages_total"),
         flights=items,
+    )
+
+
+@app.get("/api/airports/near", response_model=NearbyAirportsResponse)
+async def airports_near(
+    settings: Annotated[Settings, Depends(settings_dep)],
+    lat: float = Query(..., ge=-90, le=90, description="Center latitude (WGS84)"),
+    lon: float = Query(..., ge=-180, le=180, description="Center longitude (WGS84)"),
+    radius_miles: float = Query(
+        25.0,
+        gt=0,
+        le=500,
+        description="Search radius in statute miles (sent to AeroAPI as a rounded integer)",
+    ),
+    only_iap: bool = Query(
+        False,
+        description="If true, only airports with instrument approaches (NA only per AeroAPI)",
+    ),
+    max_pages: int = Query(
+        1,
+        ge=1,
+        description="Max AeroAPI pages to fetch (capped)",
+    ),
+) -> NearbyAirportsResponse:
+    capped = min(max_pages, MAX_PAGES_CAP)
+    radius_sent = max(1, int(round(radius_miles)))
+    try:
+        rows, meta = await search_airports_near(
+            base_url=str(settings.aeroapi_base_url).rstrip("/"),
+            api_key=settings.aeroapi_api_key,
+            latitude=lat,
+            longitude=lon,
+            radius_miles=radius_miles,
+            only_iap=only_iap,
+            max_pages=capped,
+        )
+    except AeroAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.body) from e
+
+    items: list[NearbyAirportItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        items.append(NearbyAirportItem.model_validate(row))
+
+    items.sort(
+        key=lambda x: (
+            x.distance is None,
+            x.distance if x.distance is not None else 0,
+        )
+    )
+
+    return NearbyAirportsResponse(
+        center_lat=lat,
+        center_lon=lon,
+        radius_miles=radius_miles,
+        only_iap=only_iap,
+        max_pages=capped,
+        radius_sent_to_aeroapi=radius_sent,
+        num_pages_fetched=meta.get("num_pages_total"),
+        airports=items,
     )
