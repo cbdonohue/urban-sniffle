@@ -11,9 +11,26 @@ from urllib.parse import urljoin
 import httpx
 
 
-def main() -> int:
+def _pop_verbose_flags(argv: list[str]) -> tuple[bool, list[str]]:
+    """Accept -v / --verbose anywhere; keeps argparse from rejecting unknown -v."""
+    verbose = False
+    rest: list[str] = []
+    for a in argv:
+        if a in ("-v", "--verbose"):
+            verbose = True
+        else:
+            rest.append(a)
+    return verbose, rest
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    verbose_cli, argv = _pop_verbose_flags(argv)
+
     p = argparse.ArgumentParser(
-        description="GET /api/flights/near, then POST the result to /api/flights/near/image."
+        description="GET /api/flights/near, then POST the result to /api/flights/near/image.",
+        epilog="Tip: pass -v or --verbose anywhere for flight idents and page count on stderr.",
     )
     p.add_argument("--lat", type=float, required=True, help="Center latitude (WGS84)")
     p.add_argument("--lon", type=float, required=True, help="Center longitude (WGS84)")
@@ -56,13 +73,7 @@ def main() -> int:
         default=900,
         help="Map image size in pixels (default: 900)",
     )
-    p.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print idents and API meta (num_pages_fetched) on stderr",
-    )
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     base = args.base_url.rstrip("/") + "/"
     near_url = urljoin(base, "api/flights/near")
@@ -84,7 +95,7 @@ def main() -> int:
             flights = payload.get("flights") if isinstance(payload, dict) else None
             n = len(flights) if isinstance(flights, list) else 0
             print(f"Nearby flights returned: {n}", file=sys.stderr)
-            if args.verbose and isinstance(payload, dict):
+            if verbose_cli and isinstance(payload, dict):
                 pages = payload.get("num_pages_fetched")
                 if pages is not None:
                     print(f"AeroAPI pages fetched: {pages}", file=sys.stderr)
@@ -126,4 +137,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(None))
