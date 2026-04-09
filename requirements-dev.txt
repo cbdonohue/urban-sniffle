@@ -1,3 +1,4 @@
-# Dev/test dependencies (install after requirements.txt)
-pytest>=8.0.0,<9
+# Dev/test stack: includes runtime deps so tests and imports work in one install.
+-r requirements.txt
+pytest>=8.0.0,<10
 pytest-asyncio>=0.24.0,<1
